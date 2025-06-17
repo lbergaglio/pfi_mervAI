@@ -1,12 +1,14 @@
-
 {
-  "name": "mervai-backend",
+  "name": "mervai",
   "version": "1.0.0",
-  "description": "Backend para mervAI - noticias financieras sin sesgo",
+  "description": "Backend para mervAI",
   "main": "app.js",
   "scripts": {
-    "start": "node app.js"
+    "start": "node backend/app.js"
   },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
   "dependencies": {
     "cors": "^2.8.5",
     "dotenv": "^16.0.3",
