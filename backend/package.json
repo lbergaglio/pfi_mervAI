@@ -1,7 +1,8 @@
 
 {
-  "name": "mervAI-backend",
+  "name": "mervai-backend",
   "version": "1.0.0",
+  "description": "Backend para mervAI - noticias financieras sin sesgo",
   "main": "app.js",
   "scripts": {
     "start": "node app.js"
@@ -9,7 +10,6 @@
   "dependencies": {
     "cors": "^2.8.5",
     "dotenv": "^16.0.3",
-    "express": "^4.18.2",
-    "node-fetch": "^2.6.7"
+    "express": "^4.18.2"
   }
 }
