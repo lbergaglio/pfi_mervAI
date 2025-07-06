@@ -1,145 +1,140 @@
 from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.edge.service import Service
+from selenium.webdriver.edge.options import Options
 from selenium.webdriver.common.by import By
-from bs4 import BeautifulSoup
-from datetime import datetime
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.cluster import KMeans
+from selenium.common.exceptions import NoSuchElementException, TimeoutException
+from webdriver_manager.microsoft import EdgeChromiumDriverManager
 import json
 import time
-import nltk
-from nltk.corpus import stopwords
+import random
+import sys
+from datetime import datetime
+import logging
 
-nltk.download('stopwords')
-stopwords_es = stopwords.words('spanish')
+SECCIONES_URL = [
+    "https://www.infobae.com/economia/",
+    "https://www.infobae.com/finanzas/",
+    "https://www.infobae.com/economia-y-finanzas/"
+]
 
-ACTIVOS = ["YPF", "GGAL", "ALUA", "PAMP", "BMA", "SUPV", "CEPU",
-           "TXAR", "MIRG", "COME", "EDN", "TRAN", "TS",
-           "TGSU2", "VALO", "BYMA", "HARG", "IRSA", "LOMA", "TGNO4"]
+TIME_SLEEP = 5 if "--test" not in sys.argv else 1
 
-KEYWORDS_ARG = ["argentina", "argentino", "merval", "banco central",
-                "inflación", "dólar", "afip", "anses", "bonos",
-                "renta fija", "bolsa", "finanzas"]
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-def detectar_activos(texto):
-    upper = texto.upper()
-    encontrados = [act for act in ACTIVOS if act in upper]
-    return encontrados or ["MERVAL"]
+# === Palabras clave para filtrar ===
+KEYWORDS_ARG = [
+    "argentina", "argentino", "merval", "banco central",
+    "inflación", "dólar", "afip", "anses", "bonos",
+    "renta fija", "bolsa", "finanzas", "reservas"
+]
 
-def es_argentina(texto):
-    lower = texto.lower()
-    return any(k in lower for k in KEYWORDS_ARG)
+def es_argentina(titulo, contenido):
+    # Considera argentina si alguna keyword aparece en el texto, pero solo si la keyword no está dentro de otra palabra
+    texto = (titulo + " " + contenido).lower()
+    for k in KEYWORDS_ARG:
+        palabras = texto.split()
+        if any(k == palabra.strip('.,;:!¡¿?"\'') for palabra in palabras):
+            return True
+    return False
 
-def clasificar_noticias(noticias):
-    textos = [n["contenido"] for n in noticias if n["contenido"].strip()]
-    if len(textos) < 2:
-        print("⚠️ No hay suficientes noticias para clasificar.")
-        return noticias
-
-    vectorizer = TfidfVectorizer(stop_words=stopwords_es)
-    X = vectorizer.fit_transform(textos)
-
-    n_clusters = min(4, len(noticias))
-    model = KMeans(n_clusters=n_clusters, random_state=0, n_init="auto")
-    y = model.fit_predict(X)
-
-    for i, n in enumerate(noticias):
-        n["categoria"] = f"cluster_{y[i]}" if i < len(y) else "sin_cluster"
-
-    return noticias
-
-def scrapear_infobae_selenium():
-    options = Options()
-    options.add_argument("--headless")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--no-sandbox")
-    driver = webdriver.Chrome(options=options)
-
-    driver.get("https://www.infobae.com/economia/finanzas-y-negocios/")
-    time.sleep(3)
-
-    soup = BeautifulSoup(driver.page_source, "html.parser")
-    links = soup.select("a[href*='/economia/finanzas-y-negocios/']")
-
-    noticias = []
-    vistos = set()
-
-    for tag in links:
-        titulo = tag.get_text(strip=True)
-        href = tag.get("href", "")
-        if not titulo or len(titulo) < 40:
-            continue
-        if href.startswith("/"):
-            href = "https://www.infobae.com" + href
-        if href in vistos:
-            continue
-        vistos.add(href)
-
-        if not es_argentina(titulo):
-            continue
-
-        print(f"🔗 Probando URL: {href}")
+def intentar_get(driver, url, max_reintentos=3):
+    for intento in range(max_reintentos):
         try:
-            driver.get(href)
-            WebDriverWait(driver, 15).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "div.article-body, div[itemprop='articleBody'], article"))
-            )
-            art_soup = BeautifulSoup(driver.page_source, "html.parser")
-
-            # Varios posibles selectores para adaptarnos a variaciones
-            cuerpo = (
-                art_soup.select_one("div.article-body") or 
-                art_soup.select_one("div[itemprop='articleBody']") or
-                art_soup.select_one("article")
-            )
-
-            if not cuerpo:
-                print("⚠️ Cuerpo no encontrado.")
-                continue
-
-            parrafos = cuerpo.find_all("p")
-            texto = "\n".join(p.get_text(strip=True) for p in parrafos if p.get_text(strip=True))
-            if len(texto.strip()) < 100:
-                print("⚠️ Contenido vacío o muy corto.")
-                continue
-
-            noticia = {
-                "titulo": titulo,
-                "link": href,
-                "fecha": datetime.now().isoformat(),
-                "contenido": texto,
-                "tags": detectar_activos(titulo)
-            }
-            noticias.append(noticia)
-
+            driver.get(url)
+            return True
         except Exception as e:
-            print(f"⚠️ Error procesando {href}: {e}")
-            continue
+            logging.warning(f"Reintento {intento+1} para {url} fallido: {e}")
+            time.sleep(random.uniform(2, 4))
+    return False
+
+def scrapear_infobae():
+    edge_options = Options()
+    edge_options.add_argument("--start-maximized")
+    edge_options.add_argument("--log-level=3")
+    service = Service(EdgeChromiumDriverManager().install())
+    driver = webdriver.Edge(service=service, options=edge_options)
+
+    todas_noticias = []
+    tags_unicos = set()
+
+    for URL in SECCIONES_URL:
+        logging.info(f"📂 Analizando sección: {URL}")
+        driver.get(URL)
+        time.sleep(TIME_SLEEP)
+
+        # Buscar links internos de noticias usando selectores más amplios
+        articles = driver.find_elements(By.CSS_SELECTOR, "a[href*='/economia/'], a[href*='/finanzas/'], a[href*='/economia-y-finanzas/']")
+        links = list({a.get_attribute("href") for a in articles if a.get_attribute("href") and a.get_attribute("href").startswith("http")})
+        logging.info(f"Links encontrados en la sección: {links}")
+
+        for url in links:
+            logging.info(f"🔗 Entrando a: {url}")
+            if not intentar_get(driver, url):
+                logging.error(f"❌ No se pudo acceder a {url} tras múltiples intentos.")
+                continue
+
+            time.sleep(random.uniform(2.5, 5.5))
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            time.sleep(random.uniform(1.5, 3.5))
+
+            try:
+                titulo = driver.find_element(By.TAG_NAME, "h1").text
+                contenido = ""
+                posibles_selectores = [
+                    ".article-main-content", ".article-body",
+                    "div.article-content", "div.article-text", "div[itemprop='articleBody']", "article"
+                ]
+                for selector in posibles_selectores:
+                    elementos = driver.find_elements(By.CSS_SELECTOR, f"{selector} p")
+                    if elementos:
+                        contenido = "\n".join([el.text for el in elementos if el.text.strip()])
+                        break
+
+                if not contenido:
+                    contenido = "[Contenido no encontrado]"
+                if "Registrate gratis" in contenido or "superaste el límite" in contenido.lower():
+                    contenido = "[Bloqueado por muro de pago]"
+
+                tags = [tag.text.strip() for tag in driver.find_elements(By.CSS_SELECTOR, ".tags a")]
+                for t in tags:
+                    tags_unicos.add(t)
+
+                fecha = datetime.now().isoformat()
+                noticia = {
+                    "fecha": fecha,
+                    "tags": tags,
+                    "titulo": titulo,
+                    "url": url,
+                    "contenido": contenido.strip()
+                }
+
+                logging.info(f"TÍTULO: {titulo}")
+                logging.info(f"CONTENIDO: {contenido[:120]}")
+                logging.info(f"TAGS: {tags}")
+
+                if es_argentina(titulo, contenido):
+                    todas_noticias.append(noticia)
+                    logging.info(f"🗞️ Noticia obtenida: {titulo}")
+                else:
+                    logging.info(f"❌ Noticia descartada por filtro de palabras clave: {titulo}")
+
+            except (NoSuchElementException, TimeoutException) as e:
+                logging.warning(f"No se pudo encontrar un elemento en {url}. Error: {type(e).__name__}")
+            except Exception as e:
+                logging.error(f"Error inesperado al procesar {url}: {e}", exc_info=True)
+
+    # Guardar noticias
+    fecha_archivo = datetime.now().date()
+    with open(f"noticias_infobae_{fecha_archivo}.json", "w", encoding="utf-8") as f:
+        json.dump(todas_noticias, f, indent=2, ensure_ascii=False)
+        logging.info(f"\n💾 {len(todas_noticias)} noticias guardadas en noticias_infobae_{fecha_archivo}.json")
+
+    # Guardar tags únicos
+    with open(f"tags_infobae_{fecha_archivo}.json", "w", encoding="utf-8") as f:
+        json.dump(sorted(list(tags_unicos)), f, indent=2, ensure_ascii=False)
+        logging.info(f"🏷️ {len(tags_unicos)} tags únicos guardados en tags_infobae_{fecha_archivo}.json")
 
     driver.quit()
 
-    if not noticias:
-        print("⚠️ No se encontró ninguna noticia válida.")
-        return []
-
-    noticias = clasificar_noticias(noticias)
-
-    with open("noticias_infobae.json", "w", encoding="utf-8") as f:
-        json.dump(noticias, f, indent=2, ensure_ascii=False)
-    print(f"\n💾 {len(noticias)} noticias guardadas en noticias_infobae.json")
-
-    return noticias
-
 if __name__ == "__main__":
-    noticias = scrapear_infobae_selenium()
-    for i, n in enumerate(noticias, start=1):
-        print(f"\n📰 Noticia #{i}")
-        print(f"📅 Fecha: {n['fecha']}")
-        print(f"🏷️ Tags: {', '.join(n['tags'])}")
-        print(f"📂 Categoría: {n['categoria']}")
-        print(f"🧾 Título: {n['titulo']}")
-        print(f"🔗 Link: {n['link']}")
-        print(f"📄 Contenido:\n{n['contenido'][:800]}...")
-        print("-" * 80)
+    scrapear_infobae()

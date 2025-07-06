@@ -5,10 +5,17 @@ from selenium import webdriver
 from selenium.webdriver.edge.service import Service
 from selenium.webdriver.edge.options import Options
 from selenium.webdriver.common.by import By
+from selenium.common.exceptions import NoSuchElementException, TimeoutException
 import pickle
+import logging
 
 URL = "https://www.ambito.com/finanzas/"
 COOKIES_PATH = "cookies.pkl"
+TIME_SLEEP = 5
+
+
+# Configuración básica de logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # === Clasificación automática por palabras clave ===
 CATEGORIAS = {
@@ -34,23 +41,25 @@ def cargar_cookies(driver, path=COOKIES_PATH):
             cookies = pickle.load(file)
             for cookie in cookies:
                 driver.add_cookie(cookie)
-        print(f"🍪 {len(cookies)} cookies cargadas correctamente.")
+        logging.info(f"🍪 {len(cookies)} cookies cargadas correctamente desde {path}.")
+    except FileNotFoundError:
+        logging.warning(f"⚠️ El archivo de cookies no se encontró en '{path}'. Se continuará sin cookies.")
     except Exception as e:
-        print(f"⚠️ No se pudieron cargar cookies: {e}")
+        logging.error(f"⚠️ No se pudieron cargar las cookies desde '{path}': {e}")
 
 def scrapear_ambito():
     edge_options = Options()
     edge_options.add_argument("--start-maximized")
-
-    service = Service("C:\\Users\\Luciano\\Desktop\\UADE\\PFI\\drivers\\msedgedriver.exe")
+    # Es mejor no hardcodear la ruta al driver, Selenium puede manejarlo si está en el PATH
+    service = Service() 
     driver = webdriver.Edge(service=service, options=edge_options)
 
     driver.get(URL)
-    time.sleep(2)
+    time.sleep(TIME_SLEEP)
 
     cargar_cookies(driver)
     driver.refresh()
-    time.sleep(2)
+    time.sleep(TIME_SLEEP)
 
     articles = driver.find_elements(By.CSS_SELECTOR, "article a[href*='/finanzas/']")
     links = []
@@ -64,12 +73,12 @@ def scrapear_ambito():
     noticias = []
 
     for url in links:
-        print(f"\n🔗 Entrando a: {url}")
+        logging.info(f"🔗 Entrando a: {url}")
         try:
             driver.get(url)
-            time.sleep(2)
+            time.sleep(TIME_SLEEP)
             driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            time.sleep(1)
+            time.sleep(TIME_SLEEP)
 
             titulo = driver.find_element(By.TAG_NAME, "h1").text
 
@@ -107,18 +116,21 @@ def scrapear_ambito():
             }
 
             noticias.append(noticia)
-            print(f"🗞️ {fecha} | {tags}")
-            print(f"📌 {titulo}")
-            print(f"🔗 {url}")
-            print(f"🏷️ Categorías: {categorias}")
-            print(f"📝 {contenido[:250]}...\n" + "-" * 120)
+            logging.info(f"🗞️ Noticia obtenida: {titulo}")
+            # print(f"🗞️ {fecha} | {tags}")
+            # print(f"📌 {titulo}")
+            # print(f"🔗 {url}")
+            # print(f"🏷️ Categorías: {categorias}")
+            # print(f"📝 {contenido[:250]}...\n" + "-" * 120)
 
+        except (NoSuchElementException, TimeoutException) as e:
+            logging.warning(f"No se pudo encontrar un elemento en {url} o el tiempo de espera se agotó. Error: {type(e).__name__}")
         except Exception as e:
-            print(f"⚠️ Error al procesar la nota: {e}")
+            logging.error(f"Error inesperado al procesar la nota {url}: {e}", exc_info=True)
 
     with open("noticias_ambito.json", "w", encoding="utf-8") as f:
         json.dump(noticias, f, indent=2, ensure_ascii=False)
-        print(f"\n💾 {len(noticias)} noticias guardadas en noticias_ambito.json")
+        logging.info(f"\n💾 {len(noticias)} noticias guardadas en noticias_ambito.json")
 
     driver.quit()
 
