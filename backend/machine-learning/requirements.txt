@@ -1,0 +1,9 @@
+# Web Framework
+Flask
+
+# Agrega aquí otras dependencias del proyecto
+# Ejemplo para base de datos:
+# psycopg2-binary
+# Ejemplo para scraping:
+# requests
+# beautifulsoup4
