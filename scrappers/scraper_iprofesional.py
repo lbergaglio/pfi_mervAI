@@ -2,7 +2,7 @@ import json
 import time
 import random
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from selenium import webdriver
 from selenium.webdriver.edge.service import Service
 from selenium.webdriver.edge.options import Options
@@ -16,6 +16,20 @@ SCROLLS = 2
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
+# === Cargar equivalencias de empresas del MERVAL ===
+with open("empresas_merval_equivalencias.json", "r", encoding="utf-8") as f:
+    equivalencias = json.load(f)
+
+def detectar_empresas(texto, equivalencias):
+    texto = texto.lower()
+    empresas = []
+    for empresa, sinonimos in equivalencias.items():
+        for s in sinonimos:
+            if s.lower() in texto:
+                empresas.append(empresa)
+                break
+    return empresas
+
 def scrapear_iprofesional():
     options = Options()
     options.add_argument("--start-maximized")
@@ -25,12 +39,10 @@ def scrapear_iprofesional():
     logging.info("🔍 Cargando iProfesional Finanzas…")
     time.sleep(TIME_SLEEP)
 
-    # Scroll para cargar más artículos
     for i in range(SCROLLS):
         driver.execute_script("window.scrollBy(0, 800);")
         time.sleep(random.uniform(3, 5))
 
-    # Obtener enlaces de noticias
     articulos = driver.find_elements(By.CSS_SELECTOR, "a[href*='/finanzas/']")
     urls = []
     for a in articulos:
@@ -53,11 +65,15 @@ def scrapear_iprofesional():
                 autor = "[No especificado]"
 
             try:
-                fecha = driver.find_element(By.CSS_SELECTOR, ".date").text
+                fecha_raw = driver.find_element(By.CSS_SELECTOR, ".date").text
+                fecha_publicacion = datetime.strptime(fecha_raw.split("|")[0].strip(), "%d/%m/%Y")
             except:
-                fecha = datetime.now().isoformat()
+                fecha_publicacion = datetime.now()
 
-            # === NUEVO BLOQUE ROBUSTO PARA PÁRRAFOS ===
+            # Filtrar por últimas 24hs
+            if fecha_publicacion < datetime.now() - timedelta(days=1):
+                continue
+
             posibles_contenedores = [
                 "article", ".note-body", ".article-body", ".container-body", ".article-container", ".story-content"
             ]
@@ -75,14 +91,18 @@ def scrapear_iprofesional():
             texto_completo = " ".join(p.text for p in parrafos if p.text.strip())
             resumen = " ".join(p.text for p in parrafos[:5])
 
+            texto_para_match = f"{titulo} {resumen} {texto_completo}"
+            empresas_relacionadas = detectar_empresas(texto_para_match, equivalencias)
+
             noticias.append({
                 "fecha_scrapeo": datetime.now().isoformat(),
                 "titulo": titulo,
                 "autor": autor,
-                "fecha_publicacion": fecha,
+                "fecha_publicacion": fecha_publicacion.isoformat(),
                 "resumen": resumen,
                 "contenido_completo": texto_completo,
-                "url": url
+                "url": url,
+                "empresas_merval": empresas_relacionadas
             })
 
             logging.info(f"📝 {titulo[:60]}...")
