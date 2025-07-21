@@ -16,10 +16,6 @@ SCROLLS = 2
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# === Cargar equivalencias de empresas del MERVAL ===
-with open("empresas_merval_equivalencias.json", "r", encoding="utf-8") as f:
-    equivalencias = json.load(f)
-
 def detectar_empresas(texto, equivalencias):
     texto = texto.lower()
     empresas = []
@@ -30,10 +26,8 @@ def detectar_empresas(texto, equivalencias):
                 break
     return empresas
 
-def scrapear_iprofesional():
-    options = Options()
-    options.add_argument("--start-maximized")
-    driver = webdriver.Edge(service=Service(EdgeChromiumDriverManager().install()), options=options)
+def scrapear_iprofesional(driver,equivalencias):
+    #driver = webdriver.Edge(service=Service(EdgeChromiumDriverManager().install()), options=options)
 
     driver.get(URL_BASE)
     logging.info("🔍 Cargando iProfesional Finanzas…")
@@ -112,7 +106,7 @@ def scrapear_iprofesional():
             with open("debug_iprofesional.html", "w", encoding="utf-8") as f:
                 f.write(driver.page_source)
 
-    driver.quit()
+    #driver.quit()
 
     archivo = f"iprofesional_finanzas_{datetime.today().date()}.json"
     with open(archivo, "w", encoding="utf-8") as f:

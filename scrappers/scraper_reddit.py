@@ -11,7 +11,7 @@ import random
 from datetime import datetime
 import logging
 
-REDDIT_QUERY = "merval"
+REDDIT_QUERY = "$AMZN"
 URL_BASE = f"https://www.reddit.com/search/?q={REDDIT_QUERY}&sort=new&t=day"
 SCROLLS = 6
 WAIT_TIMEOUT = 15
@@ -38,7 +38,10 @@ def scrapear_reddit():
     edge_options.add_argument("--no-sandbox")
     edge_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36")
 
-    driver = webdriver.Edge(service=Service(EdgeChromiumDriverManager().install()), options=edge_options)
+    path_driver = "C:\\Users\\Luciano\\Desktop\\UADE\\PFI\\programa\\pfi_mervAI\\drivers\\msedgedriver.exe"
+    service = Service(path_driver)
+    driver = webdriver.Edge(service=service, options=edge_options)
+
     driver.get(URL_BASE)
 
     # Esperar a que aparezcan posts
